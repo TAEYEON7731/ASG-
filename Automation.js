@@ -1,24 +1,24 @@
 /**
- * ASG 직원 관리 시스템 - 자동화 기능
- * 출퇴근, 급여계산, 통계
+ * ASG 직원 관리 시스템 - 자동화 기능 (수정 버전)
  */
 
 /**
- * 출근 체크
+ * 출근 체크 (자동 기본값 설정)
  */
 function checkIn() {
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const attendanceSheet = ss.getSheetByName('출퇴근기록');
   const employeeSheet = ss.getSheetByName('직원정보');
+  const settingsSheet = ss.getSheetByName('⚙️ 설정');
 
   if (!attendanceSheet || !employeeSheet) {
     ui.alert('❌ 오류', '시트가 없습니다. 시스템 초기화를 먼저 실행해주세요.', ui.ButtonSet.OK);
     return;
   }
 
-  // 직원 목록 가져오기
-  const employeeData = employeeSheet.getRange('B3:B100').getValues();
+  // 직원 목록
+  const employeeData = employeeSheet.getRange('B2:B100').getValues();
   const employees = employeeData.filter(row => row[0] !== '').map(row => row[0]);
 
   if (employees.length === 0) {
@@ -58,7 +58,8 @@ function checkIn() {
         ui.alert(
           'ℹ️ 알림',
           name + '님은 이미 출근 체크되었습니다.\n\n' +
-          '출근시간: ' + data[i][4],
+          '출근시간: ' + data[i][4] + '\n' +
+          '퇴근시간: ' + (data[i][5] || '미체크'),
           ui.ButtonSet.OK
         );
         return;
@@ -66,37 +67,40 @@ function checkIn() {
     }
   }
 
-  // 부서 정보 가져오기
+  // 직원 정보
   const empInfo = getEmployeeInfo(name);
 
-  // 현재 시간
-  const now = new Date();
-  const timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm');
+  // 기본 시간 가져오기
+  const defaultCheckIn = settingsSheet ? settingsSheet.getRange('B6').getValue() : '09:00';
+  const defaultCheckOut = settingsSheet ? settingsSheet.getRange('B7').getValue() : '18:00';
 
-  // 출근 기록 추가
+  // 출근 기록 추가 (기본 출퇴근 시간 자동 입력)
+  const newRow = attendanceSheet.getLastRow() + 1;
+  const now = new Date();
+
   attendanceSheet.appendRow([
-    now,
-    '=TEXT(A' + (attendanceSheet.getLastRow() + 1) + ',"ddd")',
-    name,
-    empInfo.department,
-    timeStr,
-    '',  // 퇴근시간
-    '',  // 근무시간 (나중에 자동 계산)
-    '',  // 연장근무
-    ''   // 비고
+    now,  // 날짜
+    '=TEXT(A' + newRow + ',"ddd")',  // 요일
+    name,  // 이름
+    empInfo.department,  // 부서
+    defaultCheckIn,  // 기본 출근시간 자동 입력
+    defaultCheckOut,  // 기본 퇴근시간 자동 입력
+    '=IF(AND(E' + newRow + '<>"",F' + newRow + '<>""),(F' + newRow + '-E' + newRow + ')*24,"")',  // 근무시간 자동 계산
+    ''  // 비고
   ]);
 
   ui.alert(
     '✅ 출근 완료',
     name + '님 출근이 기록되었습니다.\n\n' +
-    '출근시간: ' + timeStr + '\n' +
-    '부서: ' + empInfo.department,
-    ui.ButtonSet.OK
-  );
+    '출근시간: ' + defaultCheckIn + ' (기본값)\n' +
+    '퇴근시간: ' + defaultCheckOut + ' (기본값)\n' +
+    '부서: ' + empInfo.department + '\n\n' +
+    '💡 Tip: 실제 시간이 다른 경우 출퇴근기록 시트에서 수정하세요.',
+    ui.ButtonSet.OK);
 }
 
 /**
- * 퇴근 체크
+ * 퇴근 체크 (기존 기록 업데이트 가능)
  */
 function checkOut() {
   const ui = SpreadsheetApp.getUi();
@@ -141,25 +145,16 @@ function checkOut() {
     return;
   }
 
-  // 이미 퇴근했는지 확인
-  const checkOutTime = attendanceSheet.getRange(foundRow, 6).getValue();
-  if (checkOutTime) {
-    ui.alert(
-      'ℹ️ 알림',
-      '이미 퇴근 체크되었습니다.\n\n퇴근시간: ' + checkOutTime,
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-
   // 현재 시간
   const now = new Date();
   const timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm');
 
-  // 퇴근 시간 기록
+  // 퇴근 시간 업데이트
   attendanceSheet.getRange(foundRow, 6).setValue(timeStr);
 
-  // 근무시간 계산 (수식 이미 설정되어 있음)
+  // 근무시간은 수식으로 자동 계산됨
+  SpreadsheetApp.flush();  // 계산 강제 실행
+
   const checkInTime = attendanceSheet.getRange(foundRow, 5).getValue();
   const workHours = attendanceSheet.getRange(foundRow, 7).getValue();
 
@@ -168,7 +163,7 @@ function checkOut() {
     name + '님 퇴근이 기록되었습니다.\n\n' +
     '출근시간: ' + checkInTime + '\n' +
     '퇴근시간: ' + timeStr + '\n' +
-    '근무시간: ' + (workHours ? workHours.toFixed(1) + '시간' : '계산 중...'),
+    '근무시간: ' + (workHours ? Number(workHours).toFixed(1) + '시간' : '계산 중...'),
     ui.ButtonSet.OK
   );
 }
@@ -207,15 +202,10 @@ function showTodayAttendance() {
         const workHours = data[i][6];
 
         status += '👤 ' + name + ' (' + dept + ')\n';
-        status += '   출근: ' + checkIn;
+        status += '   출근: ' + checkIn + ' | 퇴근: ' + checkOut;
 
-        if (checkOut) {
-          status += ' | 퇴근: ' + checkOut;
-          if (workHours) {
-            status += ' | ' + (typeof workHours === 'number' ? workHours.toFixed(1) : workHours) + '시간';
-          }
-        } else {
-          status += ' | 근무중...';
+        if (workHours) {
+          status += ' | ' + (typeof workHours === 'number' ? workHours.toFixed(1) : workHours) + '시간';
         }
 
         status += '\n\n';
@@ -231,7 +221,7 @@ function showTodayAttendance() {
 }
 
 /**
- * 이번 달 급여 계산
+ * 이번 달 급여 계산 (플랫폼 인센티브 제거)
  */
 function calculateThisMonthSalary() {
   const ui = SpreadsheetApp.getUi();
@@ -240,7 +230,7 @@ function calculateThisMonthSalary() {
   const result = ui.alert(
     '💰 급여 계산',
     '이번 달 급여를 계산하시겠습니까?\n\n' +
-    '출퇴근 기록과 플랫폼 인센티브를 기반으로\n' +
+    '출퇴근 기록을 기반으로\n' +
     '급여계산 시트가 자동으로 업데이트됩니다.',
     ui.ButtonSet.YES_NO
   );
@@ -251,20 +241,19 @@ function calculateThisMonthSalary() {
 
   const employeeSheet = ss.getSheetByName('직원정보');
   const salarySheet = ss.getSheetByName('급여계산');
-  const platformSheet = ss.getSheetByName('플랫폼인센티브');
 
   if (!employeeSheet || !salarySheet) {
     ui.alert('❌ 오류', '필요한 시트가 없습니다.', ui.ButtonSet.OK);
     return;
   }
 
-  // 기존 데이터 클리어 (헤더 제외)
+  // 기존 데이터 클리어
   if (salarySheet.getLastRow() > 2) {
     salarySheet.getRange(3, 1, salarySheet.getLastRow() - 2, salarySheet.getLastColumn()).clearContent();
   }
 
   // 직원 목록
-  const employeeData = employeeSheet.getRange('B3:J100').getValues();
+  const employeeData = employeeSheet.getRange('B2:J100').getValues();
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
@@ -272,29 +261,21 @@ function calculateThisMonthSalary() {
   let row = 3;
 
   employeeData.forEach(emp => {
-    if (emp[0] && emp[6] === '재직') {  // 이름이 있고 재직 중인 경우
+    if (emp[0] && emp[6] === '재직') {
       const name = emp[0];
       const department = emp[1];
       const salaryType = emp[8] || '시급제';
       const hourlyWage = emp[7] || 13000;
 
-      // 플랫폼별 건수 계산
-      const platformCounts = getPlatformCountsForEmployee(name, currentYear, currentMonth);
-
       // 급여계산 시트에 데이터 추가
-      salarySheet.getRange(row, 1, 1, 13).setValues([[
+      salarySheet.getRange(row, 1, 1, 8).setValues([[
         name,
         department,
         salaryType,
         hourlyWage,
         '=SUMIFS(출퇴근기록!G:G, 출퇴근기록!C:C, A' + row + ', 출퇴근기록!A:A, ">="&DATE(' + currentYear + ',' + currentMonth + ',1), 출퇴근기록!A:A, "<"&DATE(' + (currentMonth === 12 ? currentYear + 1 : currentYear) + ',' + (currentMonth === 12 ? 1 : currentMonth + 1) + ',1))',
         '=IF(C' + row + '="시급제", E' + row + '*D' + row + ', 0)',
-        platformCounts['배민'],
-        platformCounts['쿠팡이츠'],
-        platformCounts['요기요'],
-        platformCounts['땡겨요'],
-        '=G' + row + '*설정!B5+H' + row + '*설정!B6+I' + row + '*설정!B7+J' + row + '*설정!B8',
-        '=F' + row + '+K' + row + '',
+        '=F' + row + '',  // 총급여 = 기본급
         ''
       ]]);
 
@@ -347,14 +328,8 @@ function showSalarySlip() {
                    '시급: ' + Number(data[i][3]).toLocaleString() + '원\n' +
                    '근무시간: ' + (data[i][4] ? Number(data[i][4]).toFixed(1) : '0.0') + '시간\n' +
                    '기본급: ' + Number(data[i][5]).toLocaleString() + '원\n\n' +
-                   '【인센티브】\n' +
-                   '배민: ' + data[i][6] + '건\n' +
-                   '쿠팡이츠: ' + data[i][7] + '건\n' +
-                   '요기요: ' + data[i][8] + '건\n' +
-                   '땡겨요: ' + data[i][9] + '건\n' +
-                   '인센티브 합계: ' + Number(data[i][10]).toLocaleString() + '원\n\n' +
                    '━━━━━━━━━━━━━━━━━━\n' +
-                   '💰 총 급여: ' + Number(data[i][11]).toLocaleString() + '원';
+                   '💰 총 급여: ' + Number(data[i][6]).toLocaleString() + '원';
 
       ui.alert('급여 명세서', slip, ui.ButtonSet.OK);
       return;
@@ -377,8 +352,8 @@ function getEmployeeInfo(name) {
 
   const data = employeeSheet.getDataRange().getValues();
 
-  for (let i = 2; i < data.length; i++) {
-    if (data[i][1] === name) {  // B열: 이름
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] === name) {
       return {
         employeeId: data[i][0],
         department: data[i][2] || '미지정',
@@ -390,44 +365,6 @@ function getEmployeeInfo(name) {
   }
 
   return { department: '미지정', hourlyWage: 13000 };
-}
-
-/**
- * 플랫폼별 건수 집계
- */
-function getPlatformCountsForEmployee(name, year, month) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const platformSheet = ss.getSheetByName('플랫폼인센티브');
-
-  const counts = {
-    '배민': 0,
-    '쿠팡이츠': 0,
-    '요기요': 0,
-    '땡겨요': 0
-  };
-
-  if (!platformSheet) {
-    return counts;
-  }
-
-  const data = platformSheet.getDataRange().getValues();
-
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0]) {
-      const date = new Date(data[i][0]);
-      const platform = data[i][1];
-      const assignee = data[i][4];
-
-      if (date.getFullYear() === year &&
-          date.getMonth() + 1 === month &&
-          assignee === name &&
-          counts.hasOwnProperty(platform)) {
-        counts[platform]++;
-      }
-    }
-  }
-
-  return counts;
 }
 
 /**
@@ -444,14 +381,12 @@ function showSalaryStatistics() {
 
   const data = salarySheet.getDataRange().getValues();
   let totalSalary = 0;
-  let totalIncentive = 0;
   let count = 0;
 
   for (let i = 2; i < data.length; i++) {
     if (data[i][0]) {
       count++;
-      totalSalary += Number(data[i][11]) || 0;
-      totalIncentive += Number(data[i][10]) || 0;
+      totalSalary += Number(data[i][6]) || 0;  // 총급여
     }
   }
 
@@ -462,88 +397,7 @@ function showSalaryStatistics() {
                 '━━━━━━━━━━━━━━━━━━\n' +
                 '대상 인원: ' + count + '명\n\n' +
                 '총 급여: ' + totalSalary.toLocaleString() + '원\n' +
-                '총 인센티브: ' + totalIncentive.toLocaleString() + '원\n' +
                 '평균 급여: ' + Math.round(avgSalary).toLocaleString() + '원';
 
   SpreadsheetApp.getUi().alert('급여 통계', stats, SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-/**
- * 인센티브 통계
- */
-function showIncentiveStatistics() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const platformSheet = ss.getSheetByName('플랫폼인센티브');
-
-  if (!platformSheet) {
-    SpreadsheetApp.getUi().alert('❌ 오류', '플랫폼인센티브 시트가 없습니다.', SpreadsheetApp.getUi().ButtonSet.OK);
-    return;
-  }
-
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
-
-  const data = platformSheet.getDataRange().getValues();
-  const platformStats = {
-    '배민': 0,
-    '쿠팡이츠': 0,
-    '요기요': 0,
-    '땡겨요': 0
-  };
-
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0]) {
-      const date = new Date(data[i][0]);
-      const platform = data[i][1];
-
-      if (date.getFullYear() === year &&
-          date.getMonth() + 1 === month &&
-          platformStats.hasOwnProperty(platform)) {
-        platformStats[platform]++;
-      }
-    }
-  }
-
-  const total = Object.values(platformStats).reduce((a, b) => a + b, 0);
-
-  const stats = '🎁 플랫폼별 인센티브 통계\n\n' +
-                year + '년 ' + month + '월\n' +
-                '━━━━━━━━━━━━━━━━━━\n' +
-                '배민: ' + platformStats['배민'] + '건\n' +
-                '쿠팡이츠: ' + platformStats['쿠팡이츠'] + '건\n' +
-                '요기요: ' + platformStats['요기요'] + '건\n' +
-                '땡겨요: ' + platformStats['땡겨요'] + '건\n\n' +
-                '총 건수: ' + total + '건';
-
-  SpreadsheetApp.getUi().alert('인센티브 통계', stats, SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-/**
- * 플랫폼 데이터 입력 안내
- */
-function showPlatformDataInput() {
-  const ui = SpreadsheetApp.getUi();
-
-  const guide = '📥 플랫폼 데이터 입력 방법\n\n' +
-                '1. 플랫폼인센티브 시트로 이동\n' +
-                '2. 각 열에 데이터 입력:\n' +
-                '   - 날짜\n' +
-                '   - 플랫폼 (배민/쿠팡이츠/요기요/땡겨요)\n' +
-                '   - 상호명\n' +
-                '   - 사업자번호\n' +
-                '   - 담당자 (직원 이름)\n' +
-                '   - 금액\n\n' +
-                '3. 급여 계산 시 자동으로 집계됩니다!\n\n' +
-                '💡 Tip: 엑셀에서 복사/붙여넣기 가능합니다.';
-
-  ui.alert('플랫폼 데이터 입력', guide, ui.ButtonSet.OK);
-
-  // 플랫폼인센티브 시트로 이동
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const platformSheet = ss.getSheetByName('플랫폼인센티브');
-
-  if (platformSheet) {
-    ss.setActiveSheet(platformSheet);
-  }
 }

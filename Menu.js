@@ -1,5 +1,5 @@
 /**
- * ASG 직원 관리 시스템 - 메뉴 및 UI
+ * ASG 직원 관리 시스템 - 메뉴 (수정 버전)
  */
 
 function onOpen() {
@@ -17,10 +17,6 @@ function onOpen() {
       .addItem('📊 이번 달 급여 계산', 'calculateThisMonthSalary')
       .addItem('💵 급여 명세서 보기', 'showSalarySlip')
       .addItem('📈 급여 통계', 'showSalaryStatistics'))
-    .addSeparator()
-    .addSubMenu(ui.createMenu('🎁 인센티브')
-      .addItem('📥 플랫폼 데이터 입력', 'showPlatformDataInput')
-      .addItem('📊 인센티브 통계', 'showIncentiveStatistics'))
     .addSeparator()
     .addSubMenu(ui.createMenu('⚙️ 시스템')
       .addItem('🔄 시스템 초기화', 'initializeAllSheets')
@@ -52,21 +48,19 @@ function showUserGuide() {
   const guide = '📖 ASG 직원 관리 시스템 사용 가이드\n\n' +
                 '【출퇴근 관리】\n' +
                 '1. 출근 시: ASG 관리 > 출퇴근 > 출근 체크\n' +
-                '2. 퇴근 시: ASG 관리 > 출퇴근 > 퇴근 체크\n' +
+                '   → 기본 시간(09:00-18:00) 자동 입력\n' +
+                '2. 실제 시간이 다른 경우:\n' +
+                '   → 출퇴근기록 시트에서 직접 수정\n' +
                 '3. 근무시간은 자동으로 계산됩니다\n\n' +
                 '【급여 계산】\n' +
                 '1. 매월 말일: ASG 관리 > 급여 > 이번 달 급여 계산\n' +
-                '2. 출퇴근 기록 + 플랫폼 인센티브가 자동 집계됩니다\n' +
+                '2. 출퇴근 기록이 자동 집계됩니다\n' +
                 '3. 개인별 명세서 확인 가능\n\n' +
-                '【플랫폼 인센티브】\n' +
-                '1. 플랫폼인센티브 시트에 일별 데이터 입력\n' +
-                '2. 담당자별로 자동 집계됩니다\n' +
-                '3. 급여 계산 시 자동 반영\n\n' +
                 '【연차 관리】\n' +
                 '1. 연차관리 시트에서 사용일수 입력\n' +
                 '2. 잔여일수가 자동 계산됩니다\n\n' +
                 '【설정】\n' +
-                '- 인센티브 단가는 ⚙️ 설정 시트에서 변경 가능\n' +
+                '- 기본 출퇴근 시간은 ⚙️ 설정 시트에서 변경 가능\n' +
                 '- 시급도 설정 시트에서 관리';
 
   ui.alert('사용 가이드', guide, ui.ButtonSet.OK);
